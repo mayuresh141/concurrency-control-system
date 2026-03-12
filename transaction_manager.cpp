@@ -1,39 +1,50 @@
 #include "transaction_manager.h"
 
-TransactionManager::TransactionManager(StorageEngine* storage) {
+TransactionManager::TransactionManager(StorageEngine* storage, Protocol protocol) {
     this->storage = storage;
+    this->protocol = protocol;
 }
 
 bool TransactionManager::commit(Transaction& txn) {
 
-    std::lock_guard<std::mutex> lock(validation_mutex);
+    // OCC VALIDATION
+    if (protocol == Protocol::OCC) {
 
-    // VALIDATION (check only recent commits)
-    int start = committed_txns.size() > 50 ? committed_txns.size() - 50 : 0;
+        std::lock_guard<std::mutex> lock(validation_mutex);
 
-    for (size_t i = start; i < committed_txns.size(); i++) {
+        int start = committed_txns.size() > 50 ? committed_txns.size() - 50 : 0;
 
-        auto& committed = committed_txns[i];
+        for (size_t i = start; i < committed_txns.size(); i++) {
 
-        for (auto& key : txn.read_set) {
+            auto& committed = committed_txns[i];
 
-            if (committed.write_set.count(key)) {
-                return false;
+            for (auto& key : txn.read_set) {
+
+                if (committed.write_set.count(key)) {
+                    return false;
+                }
             }
         }
+
+        // write phase
+        for (auto& pair : txn.write_buffer) {
+            storage->write(pair.first, pair.second);
+        }
+
+        OCCRecord record;
+        record.txn_id = txn.txn_id;
+        record.write_set = txn.write_set;
+
+        committed_txns.push_back(record);
     }
 
-    // WRITE PHASE
-    for (auto& pair : txn.write_buffer) {
-        storage->write(pair.first, pair.second);
+    // 2PL COMMIT (no validation)
+    else {
+
+        for (auto& pair : txn.write_buffer) {
+            storage->write(pair.first, pair.second);
+        }
     }
-
-    // RECORD COMMIT
-    OCCRecord record;
-    record.txn_id = txn.txn_id;
-    record.write_set = txn.write_set;
-
-    committed_txns.push_back(record);
 
     return true;
 }

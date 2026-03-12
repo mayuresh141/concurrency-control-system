@@ -4,7 +4,7 @@
 #include "transaction.h"
 #include "storage_engine.h"
 #include "occ_record.h"
-
+#include "protocol.h"
 #include <vector>
 #include <mutex>
 
@@ -16,9 +16,10 @@ private:
     std::vector<OCCRecord> committed_txns;
 
     std::mutex validation_mutex;
+    Protocol protocol;
 
 public:
-    TransactionManager(StorageEngine* storage);
+    TransactionManager(StorageEngine* storage, Protocol protocol);
 
     bool commit(Transaction& txn);
 };

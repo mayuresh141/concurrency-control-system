@@ -27,6 +27,7 @@ public:
 
     void lock_exclusive(const std::string& key);
     void unlock_exclusive(const std::string& key);
+    bool try_lock_exclusive(const std::string& key);
 };
 
 #endif

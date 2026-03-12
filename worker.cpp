@@ -5,6 +5,8 @@
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <algorithm>
+#include <unordered_map>
 
 // helper: extract balance from JSON-like value
 int extract_balance(const std::string& value) {
@@ -33,13 +35,17 @@ std::string update_balance(const std::string& value, int new_balance) {
     return value.substr(0, start) + std::to_string(new_balance) + value.substr(end);
 }
 
+// --- Worker constructor ---
 Worker::Worker(int id,
                StorageEngine* storage,
                Metrics* metrics,
                LockManager* lock_manager,
                int txn_count,
                const std::vector<std::string>& keys,
-               Protocol protocol)
+               Protocol protocol,
+               double contention_prob,
+               int hotset_size,
+               const std::vector<Template>& templates)
 {
     this->worker_id = id;
     this->storage = storage;
@@ -48,64 +54,95 @@ Worker::Worker(int id,
     this->txn_count = txn_count;
     this->keys = keys;
     this->protocol = protocol;
+    this->contention_prob = contention_prob;
+    this->hotset_size = hotset_size;
+    this->templates = templates;
 }
 
 void Worker::run() {
-
-    TransactionManager txn_manager(storage);
+    TransactionManager txn_manager(storage, protocol);
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dist(0, keys.size() - 1);
+    std::uniform_real_distribution<> prob_dist(0.0, 1.0);
+    std::uniform_int_distribution<> full_dist(0, keys.size() - 1);
+    std::uniform_int_distribution<> hot_dist(0, hotset_size - 1);
+    std::uniform_int_distribution<> tmpl_dist(0, templates.size() - 1);
 
     std::cout << "Worker " << worker_id << " started\n";
 
-    for (int i = 0; i < txn_count; i++) {
+    int committed_count = 0;
+    while (committed_count < txn_count) {
 
         bool committed = false;
 
         while (!committed) {
+            Transaction txn(committed_count);
 
-            Transaction txn(i);
+            // --- Pick a random template ---
+            Template t = templates[tmpl_dist(gen)];
 
-            // choose accounts
-            std::string from_key = keys[dist(gen)];
-            std::string to_key   = keys[dist(gen)];
-
-            if (from_key == to_key)
-                continue;
-
-            // --- C2PL locks ---
-            if (protocol == Protocol::C2PL) {
-                lock_manager->lock_exclusive(from_key);
-                lock_manager->lock_exclusive(to_key);
+            // --- Select actual keys for placeholders ---
+            std::unordered_map<std::string, std::string> actual_keys;
+            for (auto& ph : t.placeholders) {
+                double r = prob_dist(gen);
+                if (r < contention_prob)
+                    actual_keys[ph] = keys[hot_dist(gen)];
+                else
+                    actual_keys[ph] = keys[full_dist(gen)];
             }
 
-            // --- READ ---
-            std::string from_val = txn.read(from_key, storage);
-            std::string to_val   = txn.read(to_key, storage);
+            // --- 2PL: acquire all locks in sorted order ---
+            std::vector<std::string> lock_keys;
+            for (auto& p : actual_keys) lock_keys.push_back(p.second);
+            std::sort(lock_keys.begin(), lock_keys.end());
 
-            int from_balance = extract_balance(from_val);
-            int to_balance   = extract_balance(to_val);
+            bool acquired_all = true;
+            if (protocol == Protocol::C2PL) {
+                for (auto& k : lock_keys) {
+                    if (!lock_manager->try_lock_exclusive(k)) {
+                        acquired_all = false;
+                        break;
+                    }
+                }
 
-            // --- MODIFY ---
-            from_balance -= 1;
-            to_balance += 1;
+                if (!acquired_all) {
+                    // release any locks we acquired
+                    for (auto& k : lock_keys) lock_manager->unlock_exclusive(k);
+                    metrics->aborted_txns++;
+                    std::this_thread::sleep_for(std::chrono::microseconds(10));
+                    continue; // retry transaction
+                }
+            }
 
-            std::string new_from = update_balance(from_val, from_balance);
-            std::string new_to   = update_balance(to_val, to_balance);
+            // --- READ & MODIFY (simple "transfer" example for demo) ---
+            std::vector<std::pair<std::string, int>> balances;
+            for (auto& k : lock_keys) {
+                std::string val = txn.read(k, storage);
+                int bal = extract_balance(val);
+                balances.push_back({k, bal});
+            }
 
-            // --- WRITE ---
-            txn.write(from_key, new_from);
-            txn.write(to_key, new_to);
+            // example logic: decrement first key, increment second key
+            if (balances.size() >= 2) {
+                balances[0].second -= 1;
+                balances[1].second += 1;
+            }
+
+            for (auto& b : balances) {
+                std::string old_val;
+                txn.read(b.first, storage); // ensure in read_set
+                std::string new_val = update_balance(txn.read(b.first, storage), b.second);
+                txn.write(b.first, new_val);
+            }
 
             // --- COMMIT ---
             committed = txn_manager.commit(txn);
 
             // --- UNLOCK ---
             if (protocol == Protocol::C2PL) {
-                lock_manager->unlock_exclusive(from_key);
-                lock_manager->unlock_exclusive(to_key);
+                for (auto it = lock_keys.rbegin(); it != lock_keys.rend(); ++it)
+                    lock_manager->unlock_exclusive(*it);
             }
 
             if (!committed) {
@@ -115,6 +152,7 @@ void Worker::run() {
         }
 
         metrics->committed_txns++;
+        committed_count++;
     }
 
     std::cout << "Worker " << worker_id << " finished\n";

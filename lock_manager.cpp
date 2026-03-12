@@ -46,3 +46,20 @@ void LockManager::unlock_exclusive(const std::string& key) {
 
     lock->cv.notify_all();
 }
+
+// --- Non-blocking try-lock ---
+bool LockManager::try_lock_exclusive(const std::string& key) {
+    Lock* lk = get_lock(key);
+    std::unique_lock<std::mutex> ul(lk->mtx, std::defer_lock);
+
+    // try to acquire mutex
+    if (!ul.try_lock())
+        return false;
+
+    // can only get exclusive if no shared or exclusive locks
+    if (lk->exclusive || lk->shared_count > 0)
+        return false;
+
+    lk->exclusive = true;
+    return true;
+}
