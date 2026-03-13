@@ -52,25 +52,25 @@ For 2PL, the number of aborts climbs slowly (210 to 1544) as contention increase
 
 Throughput is measured in committed transactions per second.
 
-**Throughput vs Threads (Contention = 0.1):**
+**Throughput vs Threads (Contention = 0.5):**
 | Threads | OCC (txns/sec) | 2PL (txns/sec) |
 | :--- | :--- | :--- |
-| 1 | ~19,886 | ~22,599 |
-| 2 | ~34,603 | ~40,926 |
-| 4 | ~17,936 | ~30,659 |
-| 8 | ~18,404 | ~19,918 |
-| 16 | ~20,526 | ~23,180 |
+| 1 | ~18,152 | ~29,193 |
+| 2 | ~27,624 | ~36,182 |
+| 4 | ~19,867 | ~35,945 |
+| 8 | ~19,606 | ~22,907 |
+| 16 | ~22,320 | ~26,353 |
 
 ![Throughput vs Threads](graphs/thru_vs_threads.png)
 
 **Throughput vs Contention (Threads = 4):**
 | Contention | OCC (txns/sec) | 2PL (txns/sec) |
 | :--- | :--- | :--- |
-| 0.1 | ~26,665 | ~35,306 |
-| 0.3 | ~23,116 | ~38,810 |
-| 0.5 | ~27,043 | ~34,272 |
-| 0.7 | ~24,558 | ~35,597 |
-| 0.9 | ~20,219 | ~35,403 |
+| 0.1 | ~47,261 | ~9,161 |
+| 0.3 | ~26,066 | ~13,664 |
+| 0.5 | ~27,884 | ~13,972 |
+| 0.7 | ~23,158 | ~21,695 |
+| 0.9 | ~23,678 | ~14,192 |
 
 ![Throughput vs Contention](graphs/thru_vs_contention.png)
 

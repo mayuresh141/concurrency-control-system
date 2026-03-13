@@ -81,11 +81,11 @@ def run_all():
                 results["distributions"][protocol] = collect_distribution(protocol)
             clean_distributions()
             
-    # Experiment 2: Throughput/Resp vs Threads (Contention = 0.1)
-    print("--- Exp 2: Performance vs Threads (Contention=0.1) ---")
+    # Experiment 2: Throughput/Resp vs Threads (Contention = 0.5)
+    print("--- Exp 2: Performance vs Threads (Contention=0.5) ---")
     for protocol in PROTOCOLS:
         for t in THREADS:
-            a, thru, r = run_experiment(protocol, 0.1, t)
+            a, thru, r = run_experiment(protocol, 0.5, t)
             results["thru_vs_threads"][protocol].append(thru)
             results["resp_vs_threads"][protocol].append(r)
             clean_distributions()
@@ -113,7 +113,7 @@ def plot_results(results):
     plt.plot(THREADS, results["thru_vs_threads"]["2pl"], marker='s', label="2PL")
     plt.xlabel("Number of Threads")
     plt.ylabel("Throughput (Txns/Sec)")
-    plt.title("Throughput vs Threads (Contention=0.1)")
+    plt.title("Throughput vs Threads (Contention=0.5)")
     plt.legend()
     plt.grid(True)
     plt.savefig("graphs/thru_vs_threads.png")
@@ -137,7 +137,7 @@ def plot_results(results):
     plt.plot(THREADS, results["resp_vs_threads"]["2pl"], marker='s', label="2PL")
     plt.xlabel("Number of Threads")
     plt.ylabel("Average Response Time (us)")
-    plt.title("Response Time vs Threads (Contention=0.1)")
+    plt.title("Response Time vs Threads (Contention=0.5)")
     plt.legend()
     plt.grid(True)
     plt.savefig("graphs/resp_vs_threads.png")
