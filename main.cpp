@@ -129,6 +129,12 @@ int main(int argc, char* argv[]) {
     std::cout << "Committed Transactions: " << metrics.committed_txns.load() << "\n";
     std::cout << "Aborted Transactions: " << metrics.aborted_txns.load() << "\n";
     std::cout << "Throughput: " << metrics.committed_txns.load() / seconds << " txns/sec\n";
+    
+    double avg_resp = 0;
+    if (metrics.committed_txns.load() > 0) {
+        avg_resp = (double)metrics.total_response_time_us.load() / metrics.committed_txns.load();
+    }
+    std::cout << "Avg_Response_Time_us: " << avg_resp << "\n";
 
     return 0;
 }

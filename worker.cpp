@@ -7,6 +7,7 @@
 #include <string>
 #include <algorithm>
 #include <unordered_map>
+#include <fstream>
 
 // helper: extract balance from JSON-like value
 int extract_balance(const std::string& value) {
@@ -72,8 +73,11 @@ void Worker::run() {
     std::cout << "Worker " << worker_id << " started\n";
 
     int committed_count = 0;
+    std::vector<uint64_t> response_times;
+    response_times.reserve(txn_count);
     while (committed_count < txn_count) {
 
+        auto txn_start = std::chrono::high_resolution_clock::now();
         bool committed = false;
 
         while (!committed) {
@@ -151,9 +155,19 @@ void Worker::run() {
             }
         }
 
+        auto txn_end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(txn_end - txn_start).count();
+        
+        metrics->total_response_time_us += duration;
         metrics->committed_txns++;
         committed_count++;
+        response_times.push_back(duration);
     }
+
+    std::string proto_name = (protocol == Protocol::OCC) ? "occ" : "2pl";
+    std::ofstream out("dist_" + proto_name + "_" + std::to_string(worker_id) + ".csv");
+    for (auto rt : response_times) out << rt << "\n";
+    out.close();
 
     std::cout << "Worker " << worker_id << " finished\n";
 }
