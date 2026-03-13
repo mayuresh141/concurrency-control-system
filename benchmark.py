@@ -7,9 +7,9 @@ import glob
 
 # Parameters for benchmarking
 PROTOCOLS = ["occ", "2pl"]
-THREADS = [1, 2, 4, 8]
-CONTENTIONS = [0.1, 0.5, 0.9]
-TOTAL_TXNS = 5000
+THREADS = [1, 2, 4, 8, 16]
+CONTENTIONS = [0.1, 0.3, 0.5, 0.7, 0.9]
+TOTAL_TXNS = 50000
 
 def run_experiment(protocol, contention, threads):
     cmd = [

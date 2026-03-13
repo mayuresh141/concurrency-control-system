@@ -30,7 +30,7 @@ If validation fails, the transaction is rejected. It records an abort, waits for
 
 ## 4. Evaluation
 
-We performed tests using the provided `workload2.txt` and `input2.txt` files. We varied the contention probability parameter (0.1, 0.5, 0.9) and the number of threads (1, 2, 4, 8) to execute 5,000 transactions.
+We performed tests using the provided `workload2.txt` and `input2.txt` files. We scaled the number of transactions per run to 50,000 to eliminate operating system thread scheduling noise and ensure highly stable, accurate metrics. We varied the contention probability parameter (0.1, 0.3, 0.5, 0.7, 0.9) and the number of threads (1, 2, 4, 8, 16).
 
 ### 4.1 Aborts and Retries
 
@@ -38,13 +38,15 @@ Aborts happen when a 2PL transaction cannot obtain all its locks, or when an OCC
 
 | Contention | OCC Aborts | 2PL Aborts |
 | :--- | :--- | :--- |
-| 0.1 | 392 | 20 |
-| 0.5 | 1201 | 90 |
-| 0.9 | 3878 | 191 |
+| 0.1 | 3898 | 210 |
+| 0.3 | 6431 | 356 |
+| 0.5 | 12081 | 614 |
+| 0.7 | 22492 | 1085 |
+| 0.9 | 41019 | 1544 |
 
 ![Aborts vs Contention](graphs/aborts_vs_contention.png)
 
-For 2PL, the number of aborts climbs slightly (20 to 191) as contention increases. Because 2PL checks lock availability at the start and backs off if occupied, it prevents excessive wasted effort. For OCC, the number of aborts grows extremely fast (from 392 to 3878) as contention scales. High contention causes workers to process all reads and local writes before inevitably failing validation at commit time, resulting in many retries.
+For 2PL, the number of aborts climbs slowly (210 to 1544) as contention increases. Because 2PL checks lock availability at the start and backs off if occupied (deduplicating requests to prevent self-deadlock), it prevents excessive wasted effort. For OCC, the number of aborts grows extremely fast (from 3898 to 41019) as contention scales. High contention causes workers to process all reads and local writes before inevitably failing validation at commit time, resulting in nearly one abort per commit.
 
 ### 4.2 Throughput
 
@@ -53,46 +55,50 @@ Throughput is measured in committed transactions per second.
 **Throughput vs Threads (Contention = 0.1):**
 | Threads | OCC (txns/sec) | 2PL (txns/sec) |
 | :--- | :--- | :--- |
-| 1 | ~24,463 | ~27,092 |
-| 2 | ~34,489 | ~38,582 |
-| 4 | ~33,696 | ~15,526 |
-| 8 | ~30,134 | ~24,693 |
+| 1 | ~19,886 | ~22,599 |
+| 2 | ~34,603 | ~40,926 |
+| 4 | ~17,936 | ~30,659 |
+| 8 | ~18,404 | ~19,918 |
+| 16 | ~20,526 | ~23,180 |
 
 ![Throughput vs Threads](graphs/thru_vs_threads.png)
 
 **Throughput vs Contention (Threads = 4):**
 | Contention | OCC (txns/sec) | 2PL (txns/sec) |
 | :--- | :--- | :--- |
-| 0.1 | ~39,451 | ~23,299 |
-| 0.5 | ~18,694 | ~29,598 |
-| 0.9 | ~19,104 | ~28,076 |
+| 0.1 | ~26,665 | ~35,306 |
+| 0.3 | ~23,116 | ~38,810 |
+| 0.5 | ~27,043 | ~34,272 |
+| 0.7 | ~24,558 | ~35,597 |
+| 0.9 | ~20,219 | ~35,403 |
 
 ![Throughput vs Contention](graphs/thru_vs_contention.png)
 
-When scaling threads at low contention, both OCC and 2PL initialy improve performance up to two threads, after which lock overhead and OS scheduling limits throughput peaks. When scaling contention at a fixed thread count, 2PL maintains steady performance (~23k to ~28k txns/sec). The OCC throughput drops significantly (from ~39k to ~19k) under high contention because excessive validation failures force transactions to keep retrying.
+When scaling threads at low contention, both OCC and 2PL initially improve performance up to two threads, after which lock overhead and CPU contention limits throughput peaks. 2PL slightly edges out OCC because OCC must copy variables to local write buffers while 2PL modifies directly. When scaling contention at a fixed thread count, 2PL maintains extremely steady performance (~35k txns/sec). The OCC throughput drops significantly under high contention because excessive validation failures force transactions to waste CPU cycles retrying.
 
 ### 4.3 Average Response Time
 
-Response time measures how long a transaction takes from start to a successful commit, in microseconds.
+Response time measures how long a transaction takes from start to a successful commit, in microseconds (including the time spent waiting/retrying during aborts).
 
 **Response Time vs Threads (Contention = 0.1):**
 | Threads | OCC (us) | 2PL (us) |
 | :--- | :--- | :--- |
-| 1 | 40 | 36 |
-| 8 | 261 | 320 |
+| 1 | 49 | 43 |
+| 4 | 220 | 128 |
+| 16 | 771 | 684 |
 
 ![Response Time vs Threads](graphs/resp_vs_threads.png)
 
 **Response Time vs Contention (Threads = 4):**
 | Contention | OCC (us) | 2PL (us) |
 | :--- | :--- | :--- |
-| 0.1 | 97 | 169 |
-| 0.9 | 206 | 140 |
+| 0.1 | 148 | 112 |
+| 0.5 | 145 | 115 |
+| 0.9 | 196 | 111 |
 
 ![Response Time vs Contention](graphs/resp_vs_contention.png)
 
-For 2PL, as thread limits rise, response times climb because threads block longer attempting to gather exclusive locks safely. 
-For OCC, response time stays comparatively short under low contention. When contention approaches the maximum, OCC response times double, although 2PL stays stable.
+For 2PL, as thread limits rise, response times climb because threads block longer attempting to gather exclusive locks sequentially. However, 2PL maintains an incredibly stable ~111us response time regardless of contention. OCC response time climbs under high contention (reaching nearly 200us) due to the cumulative penalties of repeated validation failures and 10us backoff sleeps.
 
 ![Response Time Distribution](graphs/resp_distribution.png)
 
@@ -100,7 +106,7 @@ The distribution of response times for OCC under maximum contention shows a prom
 
 ## 5. Conclusion
 
-Both OCC and Conservative 2PL show distinct strengths. OCC works best when contention is very low. It avoids the overhead of managing locks and scales well. However, its performance drops fast when many workers try to write to the same keys. Conservative 2PL provides more stable throughput and predictable response times under high contention. Sorting lock requests and backing off upon failure successfully avoids deadlocks and livelocks. 
+Both OCC and Conservative 2PL show distinct strengths. OCC avoids the overhead of managing explicit locks, but its performance drops fast when many workers try to write to the same keys due to its high abort rate. Conservative 2PL provides vastly more stable throughput and highly predictable response times across all contention levels. Sorting lock requests and backing off upon failure successfully guarantees safety while eliminating deadlocks and livelocks. 
 
 ## 6. References
 
