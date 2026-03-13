@@ -100,19 +100,22 @@ void Worker::run() {
             std::vector<std::string> lock_keys;
             for (auto& p : actual_keys) lock_keys.push_back(p.second);
             std::sort(lock_keys.begin(), lock_keys.end());
+            lock_keys.erase(std::unique(lock_keys.begin(), lock_keys.end()), lock_keys.end());
 
             bool acquired_all = true;
+            std::vector<std::string> acquired_locks;
             if (protocol == Protocol::C2PL) {
                 for (auto& k : lock_keys) {
                     if (!lock_manager->try_lock_exclusive(k)) {
                         acquired_all = false;
                         break;
                     }
+                    acquired_locks.push_back(k);
                 }
 
                 if (!acquired_all) {
-                    // release any locks we acquired
-                    for (auto& k : lock_keys) lock_manager->unlock_exclusive(k);
+                    // release only the locks we successfully acquired
+                    for (auto& k : acquired_locks) lock_manager->unlock_exclusive(k);
                     metrics->aborted_txns++;
                     std::this_thread::sleep_for(std::chrono::microseconds(10));
                     continue; // retry transaction
