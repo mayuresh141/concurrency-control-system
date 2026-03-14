@@ -28,80 +28,135 @@ At the commit phase, the transaction enters a sequential validation step. A sing
 
 If validation fails, the transaction is rejected. It records an abort, waits for 10 microseconds, and starts over. If validation passes, the transaction applies its local write buffer to the storage engine. Finally, it records its own write set into the history of committed transactions so future validations can check against it.
 
-## 4. Evaluation
+### 4. Evaluation
 
-We performed tests using both `workload1.txt` (high density) and `workload2.txt` (low density) input files, evaluating exactly 5,000 transactions. We tracked 2PL and OCC across both datasets, sweeping the contention probability (0.1, 0.3, 0.5, 0.7, 0.9) and the thread count (1, 2, 4, 8, 16).
+We performed tests using both `workload1.txt` (high density constraints) and `workload2.txt` (low density open constraints) input files, evaluating exactly 5,000 transactions for each. We tracked 2PL and OCC across both datasets, sweeping the contention probability (0.1, 0.3, 0.5, 0.7, 0.9) and the thread count (1, 2, 4, 8, 16).
 
 ### 4.1 Aborts and Retries
 
 Aborts measure transactions that failed validations or locking mechanisms and were forced to retry. 
 
+#### Workload 1
 **Aborts (Out of 5000 Txns)**
-| Contention | OCC (WL1) | OCC (WL2) | 2PL (WL1) | 2PL (WL2) |
-| :--- | :--- | :--- | :--- | :--- |
-| 0.1 | 3,037 | 368 | 114 | 19 |
-| 0.5 | 10,459 | 1,260 | 321 | 57 |
-| 0.9 | 217,427 | 3,814 | 917 | 179 |
+| Contention | OCC | 2PL |
+| :--- | :--- | :--- |
+| 0.1 | 2,962 | 116 |
+| 0.5 | 10,609 | 307 |
+| 0.9 | 212,450 | 937 |
 
-![Aborts vs Contention](graphs/aborts_vs_contention.png)
+![Aborts vs Contention WL1](graphs/wl1_aborts_vs_contention.png)
 
-Because 2PL checks lock availability cleanly at the start and backs off if occupied (deduplicating to prevent self-deadlock), it prevents excessive wasted effort in both workloads. For OCC under Workload 2 (low-density), aborts climb but stay under control. However, under Workload 1 (high-density keys), OCC's abort rate reaches catastrophic levels (averaging over 43 retries per committed transaction at max contention) as constant conflicts invalidate the commit buffer over and over.
+#### Workload 2
+**Aborts (Out of 5000 Txns)**
+| Contention | OCC | 2PL |
+| :--- | :--- | :--- |
+| 0.1 | 371 | 19 |
+| 0.5 | 1,222 | 63 |
+| 0.9 | 3,885 | 189 |
+
+![Aborts vs Contention WL2](graphs/wl2_aborts_vs_contention.png)
+
+Because 2PL checks lock availability clearly at the start and gracefully backs off if occupied (deduplicating to prevent self-deadlock), it prevents excessive wasted effort and keeps aborts remarkably minimal in both workloads. For OCC under Workload 2 (low-density), aborts climb as expected but stay under system strain control. However, under Workload 1 (high-density keys), OCC's abort rate reaches catastrophic failure levels (averaging over 42 retries per successfully committed transaction at max contention) as constant conflicts invalidate the commit buffer perpetually.
 
 ### 4.2 Throughput
 
 Throughput is measured in committed transactions per second.
 
+#### Workload 1
 **Throughput vs Threads (Contention = 0.5):**
-| Threads | OCC (WL1) | OCC (WL2) | 2PL (WL1) | 2PL (WL2) |
-| :--- | :--- | :--- | :--- | :--- |
-| 1 | ~14,754 | ~22,288 | ~72,166 | ~22,489 |
-| 4 | ~40,038 | ~38,064 | ~67,604 | ~33,944 |
-| 16 | ~50,761 | ~38,853 | ~59,250 | ~34,104 |
+| Threads | OCC (txns/sec) | 2PL (txns/sec) |
+| :--- | :--- | :--- |
+| 1 | ~14,520 | ~65,083 |
+| 4 | ~37,036 | ~67,604 |
+| 16 | ~38,879 | ~59,250 |
 
-![Throughput vs Threads](graphs/thru_vs_threads.png)
+![Throughput vs Threads WL1](graphs/wl1_thru_vs_threads.png)
 
 **Throughput vs Contention (Threads = 4):**
-| Contention | OCC (WL1) | OCC (WL2) | 2PL (WL1) | 2PL (WL2) |
-| :--- | :--- | :--- | :--- | :--- |
-| 0.1 | ~49,800 | ~36,616 | ~82,208 | ~26,510 |
-| 0.5 | ~40,306 | ~25,055 | ~99,932 | ~35,741 |
-| 0.9 | ~3,144 | ~19,614 | ~75,314 | ~30,718 |
+| Contention | OCC (txns/sec) | 2PL (txns/sec) |
+| :--- | :--- | :--- |
+| 0.1 | ~39,611 | ~62,828 |
+| 0.5 | ~26,521 | ~84,000 |
+| 0.9 | ~2,725 | ~83,515 |
 
-![Throughput vs Contention](graphs/thru_vs_contention.png)
+![Throughput vs Contention WL1](graphs/wl1_thru_vs_contention.png)
 
-In Workload 2 (where keys are wide and distinct), OCC and 2PL maintain mostly neck-and-neck scalability. However, Workload 1 paints a stark contrast: 2PL commands an overwhelming lead in raw throughput out of the gate, hitting nearly ~100k txns/sec under 0.5 contention. The trend is violently exacerbated when scaling up contention: 2PL safely retains ~75k+ txns/sec, whereas OCC collapses to ~3.1k txns/sec at max contention because validation failures force threads into near-constant retry loops.
+#### Workload 2
+**Throughput vs Threads (Contention = 0.5):**
+| Threads | OCC (txns/sec) | 2PL (txns/sec) |
+| :--- | :--- | :--- |
+| 1 | ~20,888 | ~22,489 |
+| 4 | ~39,916 | ~33,944 |
+| 16 | ~30,640 | ~34,104 |
+
+![Throughput vs Threads WL2](graphs/wl2_thru_vs_threads.png)
+
+**Throughput vs Contention (Threads = 4):**
+| Contention | OCC (txns/sec) | 2PL (txns/sec) |
+| :--- | :--- | :--- |
+| 0.1 | ~42,724 | ~11,417 |
+| 0.5 | ~25,087 | ~55,268 |
+| 0.9 | ~19,532 | ~25,424 |
+
+![Throughput vs Contention WL2](graphs/wl2_thru_vs_contention.png)
+
+In Workload 2 (where keys are wide and distinct), OCC and 2PL maintain largely comparable scalability. However, Workload 1 paints a starkly contrasting reality: 2PL commands an overwhelming lead in raw throughput natively out of the gate. This systemic advantage is aggressively exacerbated when scaling up contention: 2PL safely retains ~80k+ txns/sec stably, whereas OCC entirely collapses to merely ~2.7k txns/sec at max contention because blind validation failures force threads into near-constant CPU-burning retry loops.
 
 ### 4.3 Average Response Time
 
 Response time measures how long a transaction takes from start to a successful commit, in microseconds (including the time spent waiting/retrying during aborts).
 
+#### Workload 1
 **Response Time vs Threads (Contention = 0.5):**
-| Threads | OCC (WL1) | OCC (WL2) | 2PL (WL1) | 2PL (WL2) |
-| :--- | :--- | :--- | :--- | :--- |
-| 1 | 67 | 44 | 13 | 37 |
-| 4 | 94 | 75 | 53 | 77 |
-| 16 | 290 | 759 | 216 | 417 |
+| Threads | OCC (us) | 2PL (us) |
+| :--- | :--- | :--- |
+| 1 | 68 | 15 |
+| 16 | 293 | 174 |
 
-![Response Time vs Threads](graphs/resp_vs_threads.png)
+![Response Time vs Threads WL1](graphs/wl1_resp_vs_threads.png)
 
 **Response Time vs Contention (Threads = 4):**
-| Contention | OCC (WL1) | OCC (WL2) | 2PL (WL1) | 2PL (WL2) |
-| :--- | :--- | :--- | :--- | :--- |
-| 0.1 | 76 | 102 | 47 | 144 |
-| 0.5 | 93 | 149 | 38 | 105 |
-| 0.9 | 1198 | 192 | 49 | 122 |
+| Contention | OCC (us) | 2PL (us) |
+| :--- | :--- | :--- |
+| 0.1 | 100 | 63 |
+| 0.9 | 1453 | 46 |
 
-![Response Time vs Contention](graphs/resp_vs_contention.png)
+![Response Time vs Contention WL1](graphs/wl1_resp_vs_contention.png)
 
-For 2PL, response times climb gently as threads wait to gather sequentially locked keys, but across both workloads, 2PL maintains extremely fast and rigid response times regardless of contention levels. Conversely, OCC response times skyrocket under Workload 1 high-contention (reaching nearly ~1,200us) entirely due to the catastrophic validation/retry loops stacking up inside single threads.
+#### Workload 2
+**Response Time vs Threads (Contention = 0.5):**
+| Threads | OCC (us) | 2PL (us) |
+| :--- | :--- | :--- |
+| 1 | 46 | 37 |
+| 16 | 442 | 451 |
 
-![Response Time Distribution](graphs/resp_distribution.png)
+![Response Time vs Threads WL2](graphs/wl2_resp_vs_threads.png)
 
-The distribution of response times for OCC under max contention (Workload 1) shows a highly skewed tail, visually confirming transactions repeatedly failing validation dozens of times and holding execution hostaged. In contrast, 2PL systematically queues locks, producing tightly clustered frequency distributions.
+**Response Time vs Contention (Threads = 4):**
+| Contention | OCC (us) | 2PL (us) |
+| :--- | :--- | :--- |
+| 0.1 | 91 | 350 |
+| 0.9 | 202 | 155 |
+
+![Response Time vs Contention WL2](graphs/wl2_resp_vs_contention.png)
+
+For 2PL, response times climb gently as threads wait to gather sequentially locked keys, but crucially across both workloads, 2PL maintains extremely fast and rigid response times mathematically immune to the scale of pure contention logic. Conversely, OCC response times skyrocket under Workload 1 high-contention (reaching nearly ~1,500us) intrinsically due to the catastrophic validation/retry loops stacking up and penalizing single thread completion velocities.
+
+### 4.4 Response Time Distribution
+
+To properly visualize the frequency of completion times across the wildly divergent scaling realities, the axes are mapped to a logarithmic scale.
+
+#### Workload 1 Distribution
+![Response Time Distribution WL1](graphs/wl1_resp_distribution.png)
+
+#### Workload 2 Distribution
+![Response Time Distribution WL2](graphs/wl2_resp_distribution.png)
+
+In Workload 1, the logarithmic scale highlights a highly skewed OCC tail representing massive populations of transactions repeatedly failing validation dozens of times and holding thread execution hostaged. In stark contrast, 2PL systematically queues locks and rapidly executes, producing mathematically tight, clustered frequency distributions absent of runaway tails.
 
 ## 5. Conclusion
 
-Both OCC and Conservative 2PL show distinct strengths. OCC avoids the overhead of managing explicit locks, making it excellent for low-density/low-conflict scopes like Workload 2. However, its performance disintegrates completely under high-conflict dense scopes like Workload 1 due to astronomical abort rates. Conservative 2PL provides vastly more stable throughput, dramatically lower abort rates, and highly predictable response times across all workloads. Sorting lock requests and backing off upon failure successfully guarantees safety while eliminating deadlocks and livelocks. 
+Both OCC and Conservative 2PL show distinct empirical strengths. OCC neatly avoids the systemic overhead of managing explicit mutex locks, making it highly preferred for low-density/low-conflict scopes similar to Workload 2. However, its core design disintegrates completely under high-conflict dense data subsets like Workload 1 due to geometrically increasing abort rate penalties. Conservative 2PL provides vastly more insulated throughput, structurally lower abort limits, and consistently predictable response boundaries across all workloads. Rigorously sorting lock requests and natively backing off upon failure demonstrably guarantees thread safety while efficiently eliminating deadlocks and livelocks.
 
 ## 6. References
 

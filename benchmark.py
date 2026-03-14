@@ -96,54 +96,51 @@ def run_all():
 def plot_results(results):
     os.makedirs("graphs", exist_ok=True)
     
-    def apply_plot(ax, metric_dict, x_vals, ylabel, title):
-        plt.figure(figsize=(9,6))
-        plt.plot(x_vals, metric_dict["occ"]["workload1"], marker='o', label="OCC (WL1)", color='#1f77b4')
-        plt.plot(x_vals, metric_dict["occ"]["workload2"], marker='^', label="OCC (WL2)", color='#41b6c4', linestyle='--')
-        plt.plot(x_vals, metric_dict["2pl"]["workload1"], marker='s', label="2PL (WL1)", color='#d62728')
-        plt.plot(x_vals, metric_dict["2pl"]["workload2"], marker='v', label="2PL (WL2)", color='#fd8d3c', linestyle='--')
-        if x_vals == CONTENTIONS:
-            plt.xlabel("Contention Probability")
-        else:
-            plt.xlabel("Number of Threads")
-        plt.ylabel(ylabel)
-        plt.title(title)
+    for wl in WORKLOADS:
+        prefix = f"wl{wl[-1]}"
+        
+        def apply_plot(ax, metric_dict, x_vals, ylabel, title, filename):
+            plt.figure(figsize=(8,5))
+            plt.plot(x_vals, metric_dict["occ"][wl], marker='o', label="OCC", color='#1f77b4')
+            plt.plot(x_vals, metric_dict["2pl"][wl], marker='s', label="2PL", color='#d62728')
+            if x_vals == CONTENTIONS:
+                plt.xlabel("Contention Probability")
+            else:
+                plt.xlabel("Number of Threads")
+            plt.ylabel(ylabel)
+            plt.title(title)
+            plt.legend()
+            plt.grid(True)
+            plt.savefig(f"graphs/{prefix}_{filename}.png")
+            plt.close()
+
+        # 1. Aborts vs Contention
+        apply_plot(plt, results["aborts_vs_contention"], CONTENTIONS, "Number of Aborts (Out of 5000 Txns)", f"Aborts vs Contention ({wl.capitalize()}, Threads=4)", "aborts_vs_contention")
+        
+        # 2. Throughput vs Threads
+        apply_plot(plt, results["thru_vs_threads"], THREADS, "Throughput (Txns/Sec)", f"Throughput vs Threads ({wl.capitalize()}, Contention=0.5)", "thru_vs_threads")
+        
+        # 3. Throughput vs Contention
+        apply_plot(plt, results["thru_vs_contention"], CONTENTIONS, "Throughput (Txns/Sec)", f"Throughput vs Contention ({wl.capitalize()}, Threads=4)", "thru_vs_contention")
+        
+        # 4. Response Time vs Threads
+        apply_plot(plt, results["resp_vs_threads"], THREADS, "Average Response Time (us)", f"Response Time vs Threads ({wl.capitalize()}, Contention=0.5)", "resp_vs_threads")
+        
+        # 5. Response Time vs Contention
+        apply_plot(plt, results["resp_vs_contention"], CONTENTIONS, "Average Response Time (us)", f"Response Time vs Contention ({wl.capitalize()}, Threads=4)", "resp_vs_contention")
+        
+        # 6. Response Time Distribution
+        plt.figure(figsize=(8,5))
+        plt.hist(results["distributions"]["occ"][wl], bins=50, alpha=0.5, label="OCC", color='#1f77b4', log=True)
+        plt.hist(results["distributions"]["2pl"][wl], bins=50, alpha=0.5, label="2PL", color='#d62728', log=True)
+        plt.xlabel("Response Time (us)")
+        plt.ylabel("Frequency (Log Scale)")
+        plt.title(f"Response Time Distribution ({wl.capitalize()}, Contention=0.9, Threads=4)")
         plt.legend()
         plt.grid(True)
+        plt.savefig(f"graphs/{prefix}_resp_distribution.png")
+        plt.close()
 
-    apply_plot(plt, results["aborts_vs_contention"], CONTENTIONS, "Number of Aborts (Out of 5000 Txns)", "Aborts vs Contention (Threads=4)")
-    plt.savefig("graphs/aborts_vs_contention.png")
-    plt.close()
-    
-    apply_plot(plt, results["thru_vs_threads"], THREADS, "Throughput (Txns/Sec)", "Throughput vs Threads (Contention=0.5)")
-    plt.savefig("graphs/thru_vs_threads.png")
-    plt.close()
-    
-    apply_plot(plt, results["thru_vs_contention"], CONTENTIONS, "Throughput (Txns/Sec)", "Throughput vs Contention (Threads=4)")
-    plt.savefig("graphs/thru_vs_contention.png")
-    plt.close()
-    
-    apply_plot(plt, results["resp_vs_threads"], THREADS, "Average Response Time (us)", "Response Time vs Threads (Contention=0.5)")
-    plt.savefig("graphs/resp_vs_threads.png")
-    plt.close()
-    
-    apply_plot(plt, results["resp_vs_contention"], CONTENTIONS, "Average Response Time (us)", "Response Time vs Contention (Threads=4)")
-    plt.savefig("graphs/resp_vs_contention.png")
-    plt.close()
-    
-    plt.figure(figsize=(9,6))
-    plt.hist(results["distributions"]["occ"]["workload1"], bins=50, alpha=0.5, label="OCC (WL1)", color='#1f77b4')
-    plt.hist(results["distributions"]["occ"]["workload2"], bins=50, alpha=0.5, label="OCC (WL2)", color='#41b6c4')
-    plt.hist(results["distributions"]["2pl"]["workload1"], bins=50, alpha=0.5, label="2PL (WL1)", color='#d62728')
-    plt.hist(results["distributions"]["2pl"]["workload2"], bins=50, alpha=0.5, label="2PL (WL2)", color='#fd8d3c')
-    plt.xlabel("Response Time (us)")
-    plt.ylabel("Frequency")
-    plt.title("Response Time Distribution (Contention=0.9, Threads=4)")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("graphs/resp_distribution.png")
-    plt.close()
-    
     print("Graphs generated in the 'graphs' directory.")
 
 if __name__ == "__main__":
