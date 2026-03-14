@@ -154,6 +154,36 @@ To properly visualize the frequency of completion times across the wildly diverg
 
 In Workload 1, the logarithmic scale highlights a highly skewed OCC tail representing massive populations of transactions repeatedly failing validation dozens of times and holding thread execution hostaged. In stark contrast, 2PL systematically queues locks and rapidly executes, producing mathematically tight, clustered frequency distributions absent of runaway tails.
 
+### 4.5 Throughput vs Hotset Size
+
+To understand how data locality affects performance, we swept the `hotset_size` parameter (100, 500, 1000, 2000, 5000 keys) under moderate contention (0.5) with 4 threads.
+
+#### Workload 1
+**Throughput vs Hotset (Txns/sec)**
+| Hotset | OCC | 2PL |
+| :--- | :--- | :--- |
+| 100 | ~14,038 | ~53,191 |
+| 500 | ~26,902 | ~45,621 |
+| 1000 | ~39,327 | ~49,178 |
+| 2000 | ~35,753 | ~33,116 |
+| 5000 | ~32,615 | ~25,040 |
+
+![Throughput vs Hotset WL1](graphs/wl1_thru_vs_hotset.png)
+
+#### Workload 2
+**Throughput vs Hotset (Txns/sec)**
+| Hotset | OCC | 2PL |
+| :--- | :--- | :--- |
+| 100 | ~12,275 | ~29,759 |
+| 500 | ~29,288 | ~38,491 |
+| 1000 | ~48,738 | ~43,669 |
+| 2000 | ~25,073 | ~13,825 |
+| 5000 | ~24,426 | ~35,040 |
+
+![Throughput vs Hotset WL2](graphs/wl2_thru_vs_hotset.png)
+
+When the hotset size is artificially compressed (e.g. 100-500 keys), the working set simulates extremely high localized contention. Here, 2PL consistently maintains an advantage because it safely queues thread access to heavily trafficked records. OCC suffers massive abort penalties because localized hotsets functionally guarantee overlapping write sets across concurrent validations, destroying validation success rates and collapsing throughput. As the hotset size widens toward 5000 keys, conflicts naturally thin out across the database footprint. 
+
 ## 5. Conclusion
 
 Both OCC and Conservative 2PL show distinct empirical strengths. OCC neatly avoids the systemic overhead of managing explicit mutex locks, making it highly preferred for low-density/low-conflict scopes similar to Workload 2. However, its core design disintegrates completely under high-conflict dense data subsets like Workload 1 due to geometrically increasing abort rate penalties. Conservative 2PL provides vastly more insulated throughput, structurally lower abort limits, and consistently predictable response boundaries across all workloads. Rigorously sorting lock requests and natively backing off upon failure demonstrably guarantees thread safety while efficiently eliminating deadlocks and livelocks.

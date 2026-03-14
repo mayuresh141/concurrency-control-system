@@ -4,13 +4,15 @@ import matplotlib.pyplot as plt
 import os
 import glob
 
+# Parameters for benchmarking
 PROTOCOLS = ["occ", "2pl"]
 WORKLOADS = ["workload1", "workload2"]
 THREADS = [1, 2, 4, 8, 16]
 CONTENTIONS = [0.1, 0.3, 0.5, 0.7, 0.9]
+HOTSETS = [100, 500, 1000, 2000, 5000] # Adjusting based on general key counts
 TOTAL_TXNS = 5000
 
-def run_experiment(protocol, contention, threads, workload):
+def run_experiment(protocol, contention, threads, workload, hotset=-1):
     cmd = [
         "./app",
         protocol,
@@ -20,6 +22,8 @@ def run_experiment(protocol, contention, threads, workload):
         f"{workload}/input{workload[-1]}.txt",
         f"{workload}/{workload}.txt"
     ]
+    if hotset != -1:
+        cmd.append(str(hotset))
     
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -43,6 +47,7 @@ def run_experiment(protocol, contention, threads, workload):
     return aborts, throughput, avg_resp
 
 def collect_distribution(protocol, workload):
+    # read all dist_{protocol}_*.csv files
     files = glob.glob(f"dist_{protocol}_*.csv")
     times = []
     for f in files:
@@ -65,11 +70,13 @@ def run_all():
         "aborts_vs_contention": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
         "thru_vs_threads": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
         "thru_vs_contention": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
+        "thru_vs_hotset": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
         "resp_vs_threads": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
         "resp_vs_contention": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
         "distributions": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS}
     }
     
+    # Experiment 1: Aborts vs Contention (Threads = 4)
     print("--- Exp 1: Aborts vs Contention (Threads=4) ---")
     for workload in WORKLOADS:
         for protocol in PROTOCOLS:
@@ -82,6 +89,7 @@ def run_all():
                     results["distributions"][protocol][workload] = collect_distribution(protocol, workload)
                 clean_distributions()
             
+    # Experiment 2: Throughput/Resp vs Threads (Contention = 0.5)
     print("--- Exp 2: Performance vs Threads (Contention=0.5) ---")
     for workload in WORKLOADS:
         for protocol in PROTOCOLS:
@@ -89,6 +97,15 @@ def run_all():
                 a, thru, r = run_experiment(protocol, 0.5, t, workload)
                 results["thru_vs_threads"][protocol][workload].append(thru)
                 results["resp_vs_threads"][protocol][workload].append(r)
+                clean_distributions()
+
+    # Experiment 3: Throughput vs Hotset Size (Contention = 0.5, Threads = 4)
+    print("--- Exp 3: Throughput vs Hotset (Contention=0.5, Threads=4) ---")
+    for workload in WORKLOADS:
+        for protocol in PROTOCOLS:
+            for h in HOTSETS:
+                a, thru, r = run_experiment(protocol, 0.5, 4, workload, hotset=h)
+                results["thru_vs_hotset"][protocol][workload].append(thru)
                 clean_distributions()
             
     return results
@@ -105,6 +122,8 @@ def plot_results(results):
             plt.plot(x_vals, metric_dict["2pl"][wl], marker='s', label="2PL", color='#d62728')
             if x_vals == CONTENTIONS:
                 plt.xlabel("Contention Probability")
+            elif x_vals == HOTSETS:
+                plt.xlabel("Hotset Size (Keys)")
             else:
                 plt.xlabel("Number of Threads")
             plt.ylabel(ylabel)
@@ -131,6 +150,7 @@ def plot_results(results):
         
         # 6. Response Time Distribution
         plt.figure(figsize=(8,5))
+        # Use log=True for proper visual distribution without hiding the main cluster due to the extreme OCC tail
         plt.hist(results["distributions"]["occ"][wl], bins=50, alpha=0.5, label="OCC", color='#1f77b4', log=True)
         plt.hist(results["distributions"]["2pl"][wl], bins=50, alpha=0.5, label="2PL", color='#d62728', log=True)
         plt.xlabel("Response Time (us)")
@@ -141,6 +161,9 @@ def plot_results(results):
         plt.savefig(f"graphs/{prefix}_resp_distribution.png")
         plt.close()
 
+        # 7. Throughput vs Hotset
+        apply_plot(plt, results["thru_vs_hotset"], HOTSETS, "Throughput (Txns/Sec)", f"Throughput vs Hotset Size ({wl.capitalize()}, Contention=0.5, Threads=4)", "thru_vs_hotset")
+    
     print("Graphs generated in the 'graphs' directory.")
 
 if __name__ == "__main__":
