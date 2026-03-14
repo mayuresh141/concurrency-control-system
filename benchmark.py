@@ -1,25 +1,24 @@
 import subprocess
 import re
 import matplotlib.pyplot as plt
-import numpy as np
 import os
 import glob
 
-# Parameters for benchmarking
 PROTOCOLS = ["occ", "2pl"]
+WORKLOADS = ["workload1", "workload2"]
 THREADS = [1, 2, 4, 8, 16]
 CONTENTIONS = [0.1, 0.3, 0.5, 0.7, 0.9]
-TOTAL_TXNS = 50000
+TOTAL_TXNS = 5000
 
-def run_experiment(protocol, contention, threads):
+def run_experiment(protocol, contention, threads, workload):
     cmd = [
         "./app",
         protocol,
         str(contention),
         str(threads),
         str(TOTAL_TXNS),
-        "workload2/input2.txt",
-        "workload2/workload2.txt"
+        f"{workload}/input{workload[-1]}.txt",
+        f"{workload}/{workload}.txt"
     ]
     
     print(f"Running: {' '.join(cmd)}")
@@ -43,8 +42,7 @@ def run_experiment(protocol, contention, threads):
         
     return aborts, throughput, avg_resp
 
-def collect_distribution(protocol):
-    # read all dist_{protocol}_*.csv files
+def collect_distribution(protocol, workload):
     files = glob.glob(f"dist_{protocol}_*.csv")
     times = []
     for f in files:
@@ -57,108 +55,87 @@ def collect_distribution(protocol):
 
 def clean_distributions():
     for f in glob.glob("dist_*.csv"):
-        os.remove(f)
+        try:
+            os.remove(f)
+        except Exception:
+            pass
 
 def run_all():
     results = {
-        "aborts_vs_contention": {"occ": [], "2pl": []},
-        "thru_vs_threads": {"occ": [], "2pl": []},
-        "thru_vs_contention": {"occ": [], "2pl": []},
-        "resp_vs_threads": {"occ": [], "2pl": []},
-        "resp_vs_contention": {"occ": [], "2pl": []},
-        "distributions": {"occ": [], "2pl": []}
+        "aborts_vs_contention": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
+        "thru_vs_threads": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
+        "thru_vs_contention": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
+        "resp_vs_threads": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
+        "resp_vs_contention": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS},
+        "distributions": {p: {w: [] for w in WORKLOADS} for p in PROTOCOLS}
     }
     
-    # Experiment 1: Aborts vs Contention (Threads = 4)
     print("--- Exp 1: Aborts vs Contention (Threads=4) ---")
-    for protocol in PROTOCOLS:
-        for c in CONTENTIONS:
-            a, t, r = run_experiment(protocol, c, 4)
-            results["aborts_vs_contention"][protocol].append(a)
-            results["thru_vs_contention"][protocol].append(t)
-            results["resp_vs_contention"][protocol].append(r)
-            if c == 0.9:
-                results["distributions"][protocol] = collect_distribution(protocol)
-            clean_distributions()
+    for workload in WORKLOADS:
+        for protocol in PROTOCOLS:
+            for c in CONTENTIONS:
+                a, t, r = run_experiment(protocol, c, 4, workload)
+                results["aborts_vs_contention"][protocol][workload].append(a)
+                results["thru_vs_contention"][protocol][workload].append(t)
+                results["resp_vs_contention"][protocol][workload].append(r)
+                if c == 0.9:
+                    results["distributions"][protocol][workload] = collect_distribution(protocol, workload)
+                clean_distributions()
             
-    # Experiment 2: Throughput/Resp vs Threads (Contention = 0.5)
     print("--- Exp 2: Performance vs Threads (Contention=0.5) ---")
-    for protocol in PROTOCOLS:
-        for t in THREADS:
-            a, thru, r = run_experiment(protocol, 0.5, t)
-            results["thru_vs_threads"][protocol].append(thru)
-            results["resp_vs_threads"][protocol].append(r)
-            clean_distributions()
+    for workload in WORKLOADS:
+        for protocol in PROTOCOLS:
+            for t in THREADS:
+                a, thru, r = run_experiment(protocol, 0.5, t, workload)
+                results["thru_vs_threads"][protocol][workload].append(thru)
+                results["resp_vs_threads"][protocol][workload].append(r)
+                clean_distributions()
             
     return results
 
 def plot_results(results):
     os.makedirs("graphs", exist_ok=True)
     
-    # 1. Aborts vs Contention
-    plt.figure(figsize=(8,5))
-    plt.plot(CONTENTIONS, results["aborts_vs_contention"]["occ"], marker='o', label="OCC")
-    plt.plot(CONTENTIONS, results["aborts_vs_contention"]["2pl"], marker='s', label="2PL")
-    plt.xlabel("Contention Probability")
-    plt.ylabel("Number of Aborts (Out of 5000 Txns)")
-    plt.title("Aborts vs Contention (Threads=4)")
-    plt.legend()
-    plt.grid(True)
+    def apply_plot(ax, metric_dict, x_vals, ylabel, title):
+        plt.figure(figsize=(9,6))
+        plt.plot(x_vals, metric_dict["occ"]["workload1"], marker='o', label="OCC (WL1)", color='#1f77b4')
+        plt.plot(x_vals, metric_dict["occ"]["workload2"], marker='^', label="OCC (WL2)", color='#41b6c4', linestyle='--')
+        plt.plot(x_vals, metric_dict["2pl"]["workload1"], marker='s', label="2PL (WL1)", color='#d62728')
+        plt.plot(x_vals, metric_dict["2pl"]["workload2"], marker='v', label="2PL (WL2)", color='#fd8d3c', linestyle='--')
+        if x_vals == CONTENTIONS:
+            plt.xlabel("Contention Probability")
+        else:
+            plt.xlabel("Number of Threads")
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.legend()
+        plt.grid(True)
+
+    apply_plot(plt, results["aborts_vs_contention"], CONTENTIONS, "Number of Aborts (Out of 5000 Txns)", "Aborts vs Contention (Threads=4)")
     plt.savefig("graphs/aborts_vs_contention.png")
     plt.close()
     
-    # 2. Throughput vs Threads
-    plt.figure(figsize=(8,5))
-    plt.plot(THREADS, results["thru_vs_threads"]["occ"], marker='o', label="OCC")
-    plt.plot(THREADS, results["thru_vs_threads"]["2pl"], marker='s', label="2PL")
-    plt.xlabel("Number of Threads")
-    plt.ylabel("Throughput (Txns/Sec)")
-    plt.title("Throughput vs Threads (Contention=0.5)")
-    plt.legend()
-    plt.grid(True)
+    apply_plot(plt, results["thru_vs_threads"], THREADS, "Throughput (Txns/Sec)", "Throughput vs Threads (Contention=0.5)")
     plt.savefig("graphs/thru_vs_threads.png")
     plt.close()
     
-    # 3. Throughput vs Contention
-    plt.figure(figsize=(8,5))
-    plt.plot(CONTENTIONS, results["thru_vs_contention"]["occ"], marker='o', label="OCC")
-    plt.plot(CONTENTIONS, results["thru_vs_contention"]["2pl"], marker='s', label="2PL")
-    plt.xlabel("Contention Probability")
-    plt.ylabel("Throughput (Txns/Sec)")
-    plt.title("Throughput vs Contention (Threads=4)")
-    plt.legend()
-    plt.grid(True)
+    apply_plot(plt, results["thru_vs_contention"], CONTENTIONS, "Throughput (Txns/Sec)", "Throughput vs Contention (Threads=4)")
     plt.savefig("graphs/thru_vs_contention.png")
     plt.close()
     
-    # 4. Response Time vs Threads
-    plt.figure(figsize=(8,5))
-    plt.plot(THREADS, results["resp_vs_threads"]["occ"], marker='o', label="OCC")
-    plt.plot(THREADS, results["resp_vs_threads"]["2pl"], marker='s', label="2PL")
-    plt.xlabel("Number of Threads")
-    plt.ylabel("Average Response Time (us)")
-    plt.title("Response Time vs Threads (Contention=0.5)")
-    plt.legend()
-    plt.grid(True)
+    apply_plot(plt, results["resp_vs_threads"], THREADS, "Average Response Time (us)", "Response Time vs Threads (Contention=0.5)")
     plt.savefig("graphs/resp_vs_threads.png")
     plt.close()
     
-    # 5. Response Time vs Contention
-    plt.figure(figsize=(8,5))
-    plt.plot(CONTENTIONS, results["resp_vs_contention"]["occ"], marker='o', label="OCC")
-    plt.plot(CONTENTIONS, results["resp_vs_contention"]["2pl"], marker='s', label="2PL")
-    plt.xlabel("Contention Probability")
-    plt.ylabel("Average Response Time (us)")
-    plt.title("Response Time vs Contention (Threads=4)")
-    plt.legend()
-    plt.grid(True)
+    apply_plot(plt, results["resp_vs_contention"], CONTENTIONS, "Average Response Time (us)", "Response Time vs Contention (Threads=4)")
     plt.savefig("graphs/resp_vs_contention.png")
     plt.close()
     
-    # 6. Response Time Distribution
-    plt.figure(figsize=(8,5))
-    plt.hist(results["distributions"]["occ"], bins=50, alpha=0.5, label="OCC")
-    plt.hist(results["distributions"]["2pl"], bins=50, alpha=0.5, label="2PL")
+    plt.figure(figsize=(9,6))
+    plt.hist(results["distributions"]["occ"]["workload1"], bins=50, alpha=0.5, label="OCC (WL1)", color='#1f77b4')
+    plt.hist(results["distributions"]["occ"]["workload2"], bins=50, alpha=0.5, label="OCC (WL2)", color='#41b6c4')
+    plt.hist(results["distributions"]["2pl"]["workload1"], bins=50, alpha=0.5, label="2PL (WL1)", color='#d62728')
+    plt.hist(results["distributions"]["2pl"]["workload2"], bins=50, alpha=0.5, label="2PL (WL2)", color='#fd8d3c')
     plt.xlabel("Response Time (us)")
     plt.ylabel("Frequency")
     plt.title("Response Time Distribution (Contention=0.9, Threads=4)")
@@ -174,6 +151,5 @@ if __name__ == "__main__":
     plot_results(r)
     
     print("\n--- Summary Data ---")
-    for k, v in r.items():
-        if k != "distributions":
-            print(f"{k}: {v}")
+    import pprint
+    pprint.pprint({k: v for k, v in r.items() if k != "distributions"})
